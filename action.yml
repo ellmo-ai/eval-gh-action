@@ -9,6 +9,9 @@ inputs:
     description: 'Path to the ellmo.config.json file'
     required: false
     default: './ellmo.config.json'
+  env_vars:
+    description: "A YAML string of environment variables"
+    required: false
   github-token:
     description: 'GitHub token'
     required: true
@@ -42,7 +45,18 @@ runs:
         token: ${{ inputs.github-token }}
 
     - name: Run associated evals
+      env:
+        ELLMO_ENV_VARS: ${{ inputs.env_vars }}
       run: |
+        # Parse the YAML string of environment variables
+        if [ -n "$ELLMO_ENV_VARS" ]; then
+          while IFS=': ' read -r key value; do
+            if [ -n "$key" ]; then
+              export "$key"="$value"
+            fi
+          done <<< "$ELLMO_ENV_VARS"
+        fi
+
         # Prepend ./ to the working directory if it's not already there
         wd="${{ inputs.working-directory }}"
         if [[ ${{ inputs.working-directory }} != ./* ]]; then
