@@ -43,6 +43,13 @@ runs:
       uses: tj-actions/changed-files@v35
       with:
         token: ${{ inputs.github-token }}
+  
+    # - name: Get changed files
+    #   id: changed-files
+    #   # Fake the output to "example/ai/prompts/RemoveUUID.ts", needs to be outputs.all_changed_files
+    #   run: | 
+    #     echo "example/ai/prompts/RemoveUUID.ts" > changed-files.txt
+    #     echo "::set-output name=all_changed_files::$(cat changed-files.txt)"
 
     - name: Set up Python
       uses: actions/setup-python@v2
@@ -51,12 +58,9 @@ runs:
 
     - name: Install dependencies
       run: pip install pyyaml
+      shell: bash
 
     - name: Run associated evals
-      run: python3 run_evals.py \
-        --env-vars "${{ inputs.env_vars }}" \
-        --working-directory "${{ inputs.working-directory }}" \
-        --config-path "${{ inputs.config-path }}" \
-        --changed-files "${{ steps.changed-files.outputs.all_changed_files }}"
+      run: python3 ${{ github.action_path }}/run_eval.py --working-directory "${{ inputs.working-directory }}" --config-path "${{ inputs.config-path }}" --changed-files "${{ steps.changed-files.outputs.all_changed_files }}" --env-vars "${{ inputs.env_vars }}"
       shell: bash
       working-directory: ${{ inputs.working-directory }}
