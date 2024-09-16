@@ -44,112 +44,19 @@ runs:
       with:
         token: ${{ inputs.github-token }}
 
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: pip install pyyaml
+
     - name: Run associated evals
-      env:
-        ELLMO_ENV_VARS: ${{ inputs.env_vars }}
-      run: |
-        # Parse the YAML string of environment variables
-        if [ -n "$ELLMO_ENV_VARS" ]; then
-          while IFS= read -r line; do
-            # Trim leading whitespace
-            line="${line#"${line%%[![:space:]]*}"}"
-            # Skip empty lines or lines starting with '-'
-            [[ -z "$line" || "$line" == -* ]] && continue
-            # Split the line into key and value
-            IFS=':' read -r key value <<< "$line"
-            # Trim whitespace from key and value
-            key="${key#"${key%%[![:space:]]*}"}"
-            key="${key%"${key##*[![:space:]]}"}"
-            value="${value#"${value%%[![:space:]]*}"}"
-            value="${value%"${value##*[![:space:]]}"}"
-            # Export the variable
-            if [ -n "$key" ]; then
-              export "$key=$value"
-            fi
-          done <<< "$ELLMO_ENV_VARS"
-        fi
-
-        # Prepend ./ to the working directory if it's not already there
-        wd="${{ inputs.working-directory }}"
-        if [[ ${{ inputs.working-directory }} != ./* ]]; then
-          wd="./${{ inputs.working-directory }}"
-        fi
-
-        config_content=$(cat ${{ inputs.config-path }})
-        promptsPath=$(echo "$config_content" | jq -r .prompts.promptsPath)
-
-        simplify_path() {
-          local path="$1"
-          local stack=()
-          local IFS='/'
-
-          # Check if the path is provided
-          if [ -z "$path" ]; then
-              echo "Error: No path provided." >&2
-              return 1
-          fi
-
-          # Split the path into components
-          read -ra components <<< "$path"
-
-          # Process each component
-          for component in "${components[@]}"; do
-              case "$component" in
-                  ""|".")
-                      # Ignore empty components and current directory (.)
-                      continue
-                      ;;
-                  "..")
-                      # Go up one directory
-                      if [ ${#stack[@]} -gt 0 ]; then
-                          unset 'stack[${#stack[@]}-1]'
-                      fi
-                      ;;
-                  *)
-                      # Add component to stack
-                      stack+=("$component")
-                      ;;
-              esac
-          done
-
-          # Construct the simplified path
-          local simplified_path
-          if [ ${#stack[@]} -eq 0 ]; then
-              simplified_path="/"
-          else
-              simplified_path=$(IFS='/'; echo "${stack[*]}")
-          fi
-
-          echo "$simplified_path"
-        }
-
-        remove_path_prefix() {
-          local full_path="$1"
-          local prefix="$2"
-
-          # Remove leading './' from both paths to normalize them
-          full_path="${full_path#./}"
-          prefix="${prefix#./}"
-
-          # Remove the prefix and echo the result
-          result="${full_path#$prefix/}"
-          echo "./$result"
-        }
-
-        promptsPath=$(simplify_path "${wd}/${promptsPath}")
-
-        for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-          if [[ $file == $promptsPath/* ]]; then
-            
-            # Remove the working directory from the file path
-            file=$(remove_path_prefix "$file" "$wd")
-
-            npx @ellmo-ai/ts-sdk eval --path "$file"
-            if [ $? -ne 0 ]; then
-              echo "Check failed for $file"
-              exit 1
-            fi
-          fi
-        done
+      run: python3 run_evals.py \
+        --env-vars "${{ inputs.env_vars }}" \
+        --working-directory "${{ inputs.working-directory }}" \
+        --config-path "${{ inputs.config-path }}" \
+        --changed-files "${{ steps.changed-files.outputs.all_changed_files }}"
       shell: bash
       working-directory: ${{ inputs.working-directory }}
