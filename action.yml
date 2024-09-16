@@ -50,9 +50,21 @@ runs:
       run: |
         # Parse the YAML string of environment variables
         if [ -n "$ELLMO_ENV_VARS" ]; then
-          while IFS=': ' read -r key value; do
+          while IFS= read -r line; do
+            # Trim leading whitespace
+            line="${line#"${line%%[![:space:]]*}"}"
+            # Skip empty lines or lines starting with '-'
+            [[ -z "$line" || "$line" == -* ]] && continue
+            # Split the line into key and value
+            IFS=':' read -r key value <<< "$line"
+            # Trim whitespace from key and value
+            key="${key#"${key%%[![:space:]]*}"}"
+            key="${key%"${key##*[![:space:]]}"}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+            # Export the variable
             if [ -n "$key" ]; then
-              export "$key"="$value"
+              export "$key=$value"
             fi
           done <<< "$ELLMO_ENV_VARS"
         fi
