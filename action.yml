@@ -1,13 +1,17 @@
 name: 'Ellmo Run Evals'
 description: 'Run Ellmo evals on changed LLM prompts.'
 inputs:
-  github-token:
-    description: 'GitHub token'
-    required: true
+  working-directory:
+    description: 'Working directory for the action'
+    required: false
+    default: '.'
   config-path:
     description: 'Path to the ellmo.config.json file'
     required: false
     default: './ellmo.config.json'
+  github-token:
+    description: 'GitHub token'
+    required: true
 runs:
   using: 'composite'
   steps:
@@ -20,13 +24,16 @@ runs:
       uses: actions/setup-node@v3
       with:
         node-version: '18'
-
+    
     - name: Setup pnpm
       uses: pnpm/action-setup@v4.0.0
+      with:
+        version: 8.10.5
 
     - name: Install dependencies
       run: pnpm install
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
 
     - name: Get changed files
       id: changed-files
@@ -36,18 +43,86 @@ runs:
 
     - name: Run associated evals
       run: |
+        # Prepend ./ to the working directory if it's not already there
+        wd="${{ inputs.working-directory }}"
+        if [[ ${{ inputs.working-directory }} != ./* ]]; then
+          wd="./${{ inputs.working-directory }}"
+        fi
+
         config_content=$(cat ${{ inputs.config-path }})
-        promptsPath=$(echo "$config_content" | jq -r .promptsPath)
+        promptsPath=$(echo "$config_content" | jq -r .prompts.promptsPath)
+
+        simplify_path() {
+          local path="$1"
+          local stack=()
+          local IFS='/'
+
+          # Check if the path is provided
+          if [ -z "$path" ]; then
+              echo "Error: No path provided." >&2
+              return 1
+          fi
+
+          # Split the path into components
+          read -ra components <<< "$path"
+
+          # Process each component
+          for component in "${components[@]}"; do
+              case "$component" in
+                  ""|".")
+                      # Ignore empty components and current directory (.)
+                      continue
+                      ;;
+                  "..")
+                      # Go up one directory
+                      if [ ${#stack[@]} -gt 0 ]; then
+                          unset 'stack[${#stack[@]}-1]'
+                      fi
+                      ;;
+                  *)
+                      # Add component to stack
+                      stack+=("$component")
+                      ;;
+              esac
+          done
+
+          # Construct the simplified path
+          local simplified_path
+          if [ ${#stack[@]} -eq 0 ]; then
+              simplified_path="/"
+          else
+              simplified_path=$(IFS='/'; echo "${stack[*]}")
+          fi
+
+          echo "$simplified_path"
+        }
+
+        remove_path_prefix() {
+          local full_path="$1"
+          local prefix="$2"
+
+          # Remove leading './' from both paths to normalize them
+          full_path="${full_path#./}"
+          prefix="${prefix#./}"
+
+          # Remove the prefix and echo the result
+          result="${full_path#$prefix/}"
+          echo "./$result"
+        }
+
+        promptsPath=$(simplify_path "${wd}/${promptsPath}")
 
         for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
           if [[ $file == $promptsPath/* ]]; then
-            echo "Checking file: $file"
-            npx @polay-ai/ts-sdk --path "$file"
+            
+            # Remove the working directory from the file path
+            file=$(remove_path_prefix "$file" "$wd")
+
+            npx @ellmo-ai/ts-sdk eval --path "$file"
             if [ $? -ne 0 ]; then
               echo "Check failed for $file"
               exit 1
             fi
           fi
         done
-      shell: bash
-
+      working-directory: ${{ inputs.working-directory }}
